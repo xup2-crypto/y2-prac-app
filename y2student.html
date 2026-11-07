@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Little Dragon Mandarin - Student Portal</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Canvas Confetti -->
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap');
+    
+    body {
+      font-family: 'Nunito', sans-serif;
+      background-color: #f7f9fa;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    .duo-btn-green {
+      background-color: #58cc02;
+      box-shadow: 0 4px 0 #46a302;
+      color: white;
+      transition: all 0.1s ease;
+    }
+    .duo-btn-green:hover:not(:disabled) {
+      background-color: #61e002;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 0 #46a302;
+    }
+    .duo-btn-green:active:not(:disabled) {
+      transform: translateY(2px);
+      box-shadow: 0 2px 0 #46a302;
+    }
+
+    .duo-btn-blue {
+      background-color: #1cb0f6;
+      box-shadow: 0 4px 0 #1899d6;
+      color: white;
+      transition: all 0.1s ease;
+    }
+    .duo-btn-blue:hover:not(:disabled) {
+      background-color: #24bbfb;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 0 #1899d6;
+    }
+    .duo-btn-blue:active:not(:disabled) {
+      transform: translateY(2px);
+      box-shadow: 0 2px 0 #1899d6;
+    }
+
+    .duo-card {
+      border: 2px solid #e5e7eb;
+      border-bottom: 4px solid #e5e7eb;
+      transition: all 0.15s ease;
+    }
+    .duo-card:hover {
+      border-color: #84d8ff;
+      background-color: #f0f9ff;
+    }
+    .duo-card.selected {
+      border-color: #1cb0f6;
+      background-color: #ddf4ff;
+      color: #1899d6;
+    }
+
+    .pulse-mic {
+      animation: mic-pulse 1.5s infinite;
+    }
+    @keyframes mic-pulse {
+      0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6); }
+      70% { box-shadow: 0 0 0 15px rgba(239, 68, 68, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+    }
+
+    @media print {
+      body * { visibility: hidden; }
+      #printable-cert, #printable-cert * { visibility: visible; }
+      #printable-cert { position: absolute; left: 0; top: 0; width: 100%; }
+    }
+  </style>
+
+  <!-- Firebase Scripts -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, setDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'pandalingo-chinese-app';
+    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+
+    let db = null;
+    let auth = null;
+
+    window.fbState = { isReady: false, studentsData: {}, appId: appId };
+
+    if (firebaseConfig) {
+      const app = initializeApp(firebaseConfig);
+      db = getFirestore(app);
+      auth = getAuth(app);
+
+      const initAuth = async () => {
+        try {
+          if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+            await signInWithCustomToken(auth, __initial_auth_token);
+          } else {
+            await signInAnonymously(auth);
+          }
+        } catch (e) {
+          console.error("Auth init failed:", e);
+        }
+      };
+
+      onAuthStateChanged(auth, (user) => {
+        if (user) {
+          window.fbState.isReady = true;
+          window.fbDb = db;
+          listenToStudents();
+        }
+      });
+
+      initAuth();
+    }
+
+    function listenToStudents() {
+      if (!db) return;
+      const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'students');
+      onSnapshot(colRef, (snapshot) => {
+        const students = {};
+        snapshot.forEach(doc => { students[doc.id] = doc.data(); });
+        window.fbState.studentsData = students;
+        if (window.onStudentDataUpdate) window.onStudentDataUpdate(students);
+      });
+    }
+
+    window.saveStudentCloud = async function(studentData) {
+      if (!db || !studentData.name) return;
+      const studentId = studentData.name.toLowerCase().trim().replace(/[^a-z0-9]/g, '_');
+      const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'students', studentId);
+      
+      const payload = {
+        name: studentData.name,
+        xp: studentData.xp || 0,
+        gems: studentData.gems || 0,
+        streak: studentData.streak || 1,
+        hearts: studentData.hearts ?? 5,
+        completedModules: studentData.completedModules || [],
+        badges: studentData.badges || [],
+        drillsCompleted: studentData.drillsCompleted || 0,
+        speakingDrills: studentData.speakingDrills || 0,
+        tracingDrills: studentData.tracingDrills || 0,
+        lastActive: new Date().toISOString()
+      };
+
+      try {
+        await setDoc(docRef, payload, { merge: true });
+      } catch (err) {
+        console.error("Cloud save failed:", err);
+      }
+    };
+  </script>
+</head>
+<body class="min-h-screen text-slate-800 flex flex-col justify-between">
+
+  <!-- TOP APP SWITCHER BAR -->
+  <div class="bg-slate-900 text-slate-300 text-xs px-4 py-2 flex justify-between items-center border-b border-slate-800">
+    <div class="flex items-center gap-2 font-bold">
+      <span class="text-emerald-400 font-black">STUDENT APP MODE</span>
+      <span class="text-slate-500">•</span>
+      <span>Cross-Linked Classroom System</span>
+    </div>
+    <a href="teacher_app.html" class="bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold px-3 py-1 rounded-lg flex items-center gap-1.5 transition">
+      <i class="fa-solid fa-chalkboard-user"></i> Switch to Teacher Portal
+    </a>
+  </div>
+
+  <!-- GAMIFIED HEADER -->
+  <header class="sticky top-0 z-40 bg-white border-b-2 border-slate-200 px-4 py-3 shadow-sm">
+    <div class="max-w-4xl mx-auto flex justify-between items-center">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 bg-emerald-500 rounded-2xl flex items-center justify-center text-white font-extrabold text-xl shadow-md cursor-pointer" onclick="showMap()">
+          🐲
+        </div>
+        <div>
+          <span class="font-black text-xl tracking-wide text-emerald-600">Little Dragon</span>
+          <div id="active-user-badge" class="text-xs font-bold text-slate-500 flex items-center gap-1 cursor-pointer hover:text-emerald-600" onclick="showLoginModal()">
+            <i class="fa-solid fa-user text-emerald-500"></i>
+            <span id="header-user-name">Guest Student</span>
+            <i class="fa-solid fa-chevron-down text-[10px]"></i>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-3 font-bold text-sm">
+        <div class="flex items-center gap-1.5 text-amber-500 bg-amber-50 px-2.5 py-1.5 rounded-xl border border-amber-200" title="Streak">
+          <i class="fa-solid fa-fire text-base"></i>
+          <span id="stat-streak">1</span>
+        </div>
+        <div class="flex items-center gap-1.5 text-purple-500 bg-purple-50 px-2.5 py-1.5 rounded-xl border border-purple-200" title="XP">
+          <i class="fa-solid fa-star text-base"></i>
+          <span id="stat-xp">0</span>
+        </div>
+        <div class="flex items-center gap-1.5 text-rose-500 bg-rose-50 px-2.5 py-1.5 rounded-xl border border-rose-200" title="Hearts">
+          <i class="fa-solid fa-heart text-base"></i>
+          <span id="stat-hearts">5</span>
+        </div>
+        <button onclick="showParentShowcase()" class="bg-amber-400 hover:bg-amber-500 text-amber-950 font-black text-xs px-3 py-2 rounded-xl border-b-2 border-amber-600 flex items-center gap-1.5 shadow-sm">
+          <i class="fa-solid fa-award text-sm"></i>
+          <span>Parent Showcase</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN CONTAINER -->
+  <main id="app-container" class="flex-grow max-w-4xl w-full mx-auto p-4 flex flex-col justify-center">
+
+    <!-- LOGIN MODAL -->
+    <div id="view-login" class="w-full max-w-md mx-auto bg-white border-2 border-slate-200 rounded-3xl p-6 shadow-xl space-y-6">
+      <div class="text-center space-y-2">
+        <div class="text-5xl">🐲</div>
+        <h2 class="text-2xl font-black text-slate-800">Welcome, Little Dragon!</h2>
+        <p class="text-sm font-bold text-slate-500">Enter your name or click your profile to begin practicing.</p>
+      </div>
+
+      <div class="space-y-3">
+        <label class="block text-xs font-black uppercase text-slate-400">Student Name</label>
+        <div class="flex gap-2">
+          <input type="text" id="input-student-name" placeholder="e.g. Alex, Maya..." class="flex-grow border-2 border-slate-300 rounded-2xl px-4 py-3 font-bold text-slate-800 focus:outline-none focus:border-emerald-500">
+          <button onclick="loginWithInputName()" class="duo-btn-green px-5 rounded-2xl font-black text-sm uppercase">Start</button>
+        </div>
+      </div>
+
+      <div class="border-t border-slate-200 pt-4 space-y-2">
+        <label class="block text-xs font-black uppercase text-slate-400">Select Existing Profile</label>
+        <div id="roster-list" class="space-y-2 max-h-48 overflow-y-auto pr-1">
+          <p class="text-xs text-slate-400 italic">Loading student roster...</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODULE MAP -->
+    <div id="view-map" class="hidden w-full space-y-6 max-w-2xl mx-auto">
+      <div class="text-center space-y-2">
+        <h1 class="text-3xl font-black text-slate-800">Year 2 Mandarin Curriculum</h1>
+        <p class="text-slate-500 font-bold">Complete lessons to earn XP, streak points, and badges for parents!</p>
+      </div>
+      <div class="space-y-4" id="module-list"></div>
+    </div>
+
+    <!-- EXERCISE VIEW -->
+    <div id="view-exercise" class="hidden flex-col flex-grow justify-between min-h-[550px] w-full max-w-2xl mx-auto">
+      <div>
+        <div class="flex items-center justify-between mb-4">
+          <button onclick="confirmExit()" class="text-slate-400 hover:text-slate-600 font-bold p-2"><i class="fa-solid fa-xmark text-2xl"></i></button>
+          <div class="flex-grow mx-4 bg-slate-200 h-4 rounded-full overflow-hidden">
+            <div id="exercise-progress" class="bg-emerald-500 h-full w-0 transition-all duration-300"></div>
+          </div>
+          <div class="text-rose-500 font-black flex items-center gap-1">
+            <i class="fa-solid fa-heart"></i>
+            <span id="current-hearts">5</span>
+          </div>
+        </div>
+        <div id="exercise-body" class="py-2"></div>
+      </div>
+
+      <div id="action-footer" class="border-t-2 border-slate-200 pt-4 mt-6">
+        <div id="feedback-banner" class="hidden rounded-2xl p-4 mb-4 flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div id="feedback-icon" class="w-12 h-12 rounded-full flex items-center justify-center text-white text-2xl font-bold"></div>
+            <div>
+              <div id="feedback-title" class="font-black text-lg"></div>
+              <div id="feedback-subtitle" class="text-sm font-semibold"></div>
+            </div>
+          </div>
+        </div>
+        <button id="btn-check" onclick="handleActionClick()" class="duo-btn-green w-full py-4 rounded-2xl font-black text-xl tracking-wider uppercase">Check</button>
+      </div>
+    </div>
+
+    <!-- PARENT SHOWCASE & BADGES MODAL -->
+    <div id="view-parent-showcase" class="hidden w-full max-w-2xl mx-auto bg-white border-2 border-amber-300 rounded-3xl p-6 shadow-xl space-y-6">
+      <div class="flex justify-between items-center border-b border-slate-200 pb-4">
+        <div class="flex items-center gap-3">
+          <span class="text-4xl">🏅</span>
+          <div>
+            <h2 class="text-2xl font-black text-slate-800">Parent Showcase & Badges</h2>
+            <p class="text-xs font-bold text-amber-600">Show your parents what you've learned in Mandarin!</p>
+          </div>
+        </div>
+        <button onclick="showMap()" class="text-slate-400 hover:text-slate-600 font-bold text-xl"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <!-- Badges Grid -->
+      <div class="space-y-3">
+        <h3 class="text-xs font-black uppercase text-slate-400">Earned Achievement Badges</h3>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3" id="badges-grid"></div>
+      </div>
+
+      <!-- Parent Report Certificate Action -->
+      <div class="bg-amber-50 border-2 border-amber-200 rounded-2xl p-4 flex justify-between items-center">
+        <div>
+          <h4 class="font-black text-amber-900">Printable Parent Report</h4>
+          <p class="text-xs font-bold text-amber-700">Generate a progress report to show your parents!</p>
+        </div>
+        <button onclick="generateParentCertificate()" class="bg-amber-500 hover:bg-amber-600 text-white font-extrabold px-4 py-2.5 rounded-xl text-sm shadow">
+          <i class="fa-solid fa-print"></i> Generate Certificate
+        </button>
+      </div>
+    </div>
+
+    <!-- PRINTABLE CERTIFICATE MODAL -->
+    <div id="view-certificate" class="hidden w-full max-w-xl mx-auto bg-white border-4 border-amber-400 rounded-3xl p-8 shadow-2xl space-y-6 relative" id="printable-cert">
+      <button onclick="showParentShowcase()" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 font-bold text-xl print:hidden"><i class="fa-solid fa-xmark"></i></button>
+      <div class="text-center space-y-2 border-b-2 border-amber-200 pb-4">
+        <div class="text-5xl">📜</div>
+        <h1 class="text-3xl font-black text-amber-700">Mandarin Progress Certificate</h1>
+        <p class="text-sm font-bold text-slate-500">Year 2 Mandarin Curriculum Achievement</p>
+      </div>
+
+      <div class="text-center space-y-4">
+        <p class="text-base text-slate-700 font-bold">This certifies that</p>
+        <div id="cert-student-name" class="text-3xl font-black text-emerald-600 underline decoration-amber-400 underline-offset-8">Student Name</div>
+        <p class="text-base text-slate-700 font-bold">has successfully completed Chinese drills and unlocked the following achievements:</p>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-200 text-center">
+        <div>
+          <div class="text-xs text-slate-400 font-bold uppercase">Total XP Earned</div>
+          <div id="cert-xp" class="text-xl font-black text-purple-600">0 XP</div>
+        </div>
+        <div>
+          <div class="text-xs text-slate-400 font-bold uppercase">Units Completed</div>
+          <div id="cert-modules" class="text-xl font-black text-emerald-600">0 / 6</div>
+        </div>
+      </div>
+
+      <div class="space-y-2">
+        <div class="text-xs font-black uppercase text-slate-400">Unlocked Badges</div>
+        <div id="cert-badges-list" class="flex flex-wrap gap-2 justify-center"></div>
+      </div>
+
+      <div class="flex justify-between items-center text-xs text-slate-400 font-bold pt-4 border-t border-slate-200">
+        <span id="cert-date">Date: Nov 2026</span>
+        <span>Teacher Signature: __________________</span>
+      </div>
+
+      <div class="text-center print:hidden pt-2">
+        <button onclick="window.print()" class="duo-btn-green px-6 py-3 rounded-2xl font-black text-sm uppercase">
+          <i class="fa-solid fa-print"></i> Print Report for Parents
+        </button>
+      </div>
+    </div>
+
+    <!-- SUMMARY VIEW -->
+    <div id="view-summary" class="hidden text-center space-y-8 py-8 max-w-2xl mx-auto">
+      <div class="relative inline-block">
+        <div class="text-8xl animate-bounce">🏆</div>
+        <div class="text-2xl font-black text-amber-500 mt-4">Lesson Completed!</div>
+      </div>
+      <p class="text-slate-500 font-bold text-lg">Great work! Your progress has been updated.</p>
+      <div class="grid grid-cols-3 gap-4">
+        <div class="bg-amber-50 border-2 border-amber-200 rounded-2xl p-4">
+          <div class="text-xs font-bold text-amber-600 uppercase">XP Earned</div>
+          <div class="text-2xl font-black text-amber-500">+20</div>
+        </div>
+        <div class="bg-emerald-50 border-2 border-emerald-200 rounded-2xl p-4">
+          <div class="text-xs font-bold text-emerald-600 uppercase">Status</div>
+          <div class="text-2xl font-black text-emerald-500">Synced</div>
+        </div>
+        <div class="bg-cyan-50 border-2 border-cyan-200 rounded-2xl p-4">
+          <div class="text-xs font-bold text-cyan-600 uppercase">Gems</div>
+          <div class="text-2xl font-black text-cyan-500">+10</div>
+        </div>
+      </div>
+      <button onclick="showMap()" class="duo-btn-green w-full py-4 rounded-2xl font-black text-xl tracking-wider uppercase">Continue</button>
+    </div>
+
+  </main>
+
+  <footer class="py-3 text-center text-slate-400 font-bold text-xs border-t border-slate-200 bg-white">
+    Little Dragon Mandarin • Year 2 Curriculum Practice
+  </footer>
+
+  <script>
+    /* BADGES DEFINITION */
+    const BADGES = [
+      { id: "first_step", title: "First Steps", desc: "Complete Module 1", icon: "🌟" },
+      { id: "speaker", title: "Mandarin Speaker", desc: "Complete 5 Speaking Drills", icon: "🗣️" },
+      { id: "calligrapher", title: "Master Calligrapher", desc: "Complete 3 Character Traces", icon: "✍️" },
+      { id: "streak_master", title: "Streak Master", desc: "Earn 100+ XP or 3-day Streak", icon: "🔥" },
+      { id: "champion", title: "Year 2 Champion", desc: "Complete All 6 Modules", icon: "🏆" }
+    ];
+
+    /* CURRICULUM DATA */
+    const CURRICULUM_MODULES = [
+      {
+        id: "m1", title: "Unit 1: Greetings & Routines", icon: "🌅", color: "bg-emerald-500", description: "早上好, 刷牙, 洗脸...",
+        exercises: [
+          { type: "translate_en_zh", prompt: "Good morning", answer: "早上好", options: ["早上好", "下午好", "晚上好", "晚安"] },
+          { type: "listen_comprehension", audioText: "洗脸", pinyin: "xǐ liǎn", prompt: "What did you hear?", answer: "Wash face", options: ["Wash face", "Brush teeth", "Comb hair", "Sleep"] },
+          { type: "speak_read_out", pinyin: "shua ya", chinese: "刷牙", english: "Brush teeth" },
+          { type: "trace_character", character: "风", pinyin: "fēng", meaning: "Wind" },
+          { type: "sentence_build", prompt: "It is bedtime", targetWords: ["晚安", "睡觉了"], scrambledWords: ["睡觉了", "早上好", "晚安"] },
+          { type: "listen_multi_select", audioTexts: ["穿衣服", "梳头"], prompt: "Select the TWO phrases spoken:", correctOptions: ["穿衣服", "梳头"], options: ["穿衣服", "洗脸", "梳头", "刷牙"] }
+        ]
+      },
+      {
+        id: "m2", title: "Unit 2: Self-Intro & Family", icon: "👨‍👩‍👧‍👦", color: "bg-blue-500", description: "我六岁, 我家有爸爸妈妈...",
+        exercises: [
+          { type: "translate_en_zh", prompt: "I am 6 years old.", answer: "我六岁", options: ["我六岁", "我叫", "我高", "我有爸爸"] },
+          { type: "listen_comprehension", audioText: "我喜欢吃水果", pinyin: "wǒ xǐ huan chī shuǐ guǒ", prompt: "Choose translation:", answer: "I like eating fruits.", options: ["I like eating fruits.", "I like sports.", "I am 6 years old."] },
+          { type: "trace_character", character: "水", pinyin: "shuǐ", meaning: "Water / Fruit" },
+          { type: "listen_multi_select", audioTexts: ["爸爸", "妈妈"], prompt: "Select the TWO family members:", correctOptions: ["爸爸", "妈妈"], options: ["爸爸", "妈妈", "哥哥", "姐姐"] }
+        ]
+      },
+      {
+        id: "m3", title: "Unit 3: Weather & Sky Riddles", icon: "🌤️", color: "bg-amber-500", description: "晴天, 雨天, 刮风, 亮闪闪...",
+        exercises: [
+          { type: "listen_comprehension", audioText: "今天是晴天", pinyin: "jīn tiān shì qíng tiān", prompt: "What is the weather?", answer: "Today is sunny", options: ["Today is sunny", "Today is rainy", "Today is windy"] },
+          { type: "trace_character", character: "天", pinyin: "tiān", meaning: "Sky / Day" },
+          { type: "trace_character", character: "雨", pinyin: "yǔ", meaning: "Rain" }
+        ]
+      },
+      {
+        id: "m4", title: "Unit 4: Actions & Seasons", icon: "🏃‍♂️", color: "bg-purple-500", description: "走, 跳, 跑, 停, 春夏秋冬...",
+        exercises: [
+          { type: "translate_en_zh", prompt: "Spring, Summer, Autumn, Winter", answer: "春夏秋冬", options: ["春夏秋冬", "上上下下", "走啊走啊"] },
+          { type: "trace_character", character: "走", pinyin: "zǒu", meaning: "Walk" }
+        ]
+      },
+      {
+        id: "m5", title: "Unit 5: Animals & Feelings", icon: "🐯", color: "bg-rose-500", description: "老虎, 大象, 熊猫, 害怕...",
+        exercises: [
+          { type: "listen_comprehension", audioText: "老虎", pinyin: "lǎo hǔ", prompt: "Identify animal:", answer: "Tiger", options: ["Tiger", "Elephant", "Panda"] }
+        ]
+      },
+      {
+        id: "m6", title: "Unit 6: Days of the Week", icon: "📅", color: "bg-indigo-500", description: "星期一 到 星期天",
+        exercises: [
+          { type: "translate_en_zh", prompt: "Wednesday", answer: "星期三", options: ["星期一", "星期二", "星期三", "星期四"] }
+        ]
+      }
+    ];
+
+    let studentState = {
+      name: "Guest Student", streak: 1, gems: 100, xp: 0, hearts: 5,
+      completedModules: [], badges: [], drillsCompleted: 0, speakingDrills: 0, tracingDrills: 0
+    };
+
+    let state = { activeModuleIndex: 0, exerciseIndex: 0, userAnswer: null, selectedMultiOptions: [], sentenceTiles: [], tracingCompleted: false, isListening: false };
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    window.onload = function() {
+      window.onStudentDataUpdate = renderRosterList;
+      renderRosterList();
+      showLoginModal();
+    };
+
+    function showLoginModal() {
+      hideAllViews();
+      document.getElementById('view-login').classList.remove('hidden');
+    }
+
+    function showMap() {
+      hideAllViews();
+      document.getElementById('view-map').classList.remove('hidden');
+      renderModuleMap();
+    }
+
+    function showParentShowcase() {
+      hideAllViews();
+      document.getElementById('view-parent-showcase').classList.remove('hidden');
+      renderParentShowcase();
+    }
+
+    function hideAllViews() {
+      ['view-login', 'view-map', 'view-exercise', 'view-parent-showcase', 'view-certificate', 'view-summary'].forEach(id => {
+        document.getElementById(id).classList.add('hidden');
+      });
+    }
+
+    function loginWithInputName() {
+      const name = document.getElementById('input-student-name').value.trim();
+      if (name) loadStudentProfile(name);
+    }
+
+    function loadStudentProfile(name) {
+      const existing = window.fbState?.studentsData ? Object.values(window.fbState.studentsData).find(s => s.name?.toLowerCase() === name.toLowerCase()) : null;
+      if (existing) {
+        studentState = { ...existing };
+      } else {
+        studentState = { name, streak: 1, gems: 100, xp: 0, hearts: 5, completedModules: [], badges: [], drillsCompleted: 0, speakingDrills: 0, tracingDrills: 0 };
+      }
+      document.getElementById('header-user-name').innerText = studentState.name;
+      updateHeaderStats();
+      syncCloud();
+      showMap();
+    }
+
+    function renderRosterList() {
+      const container = document.getElementById('roster-list');
+      const students = window.fbState?.studentsData || {};
+      const keys = Object.keys(students);
+
+      if (keys.length === 0) {
+        container.innerHTML = `<p class="text-xs text-slate-400 italic">No existing profiles yet.</p>`;
+        return;
+      }
+
+      container.innerHTML = keys.map(k => {
+        const s = students[k];
+        return `
+          <button onclick="loadStudentProfile('${s.name}')" class="w-full text-left bg-slate-50 hover:bg-emerald-50 border border-slate-200 p-2.5 rounded-xl font-bold text-sm text-slate-700 flex justify-between items-center">
+            <span>👤 ${s.name}</span>
+            <span class="text-xs text-purple-600 font-extrabold">${s.xp || 0} XP</span>
+          </button>
+        `;
+      }).join('');
+    }
+
+    function syncCloud() {
+      checkBadgeUnlocks();
+      if (window.saveStudentCloud) window.saveStudentCloud(studentState);
+    }
+
+    function checkBadgeUnlocks() {
+      if (!studentState.badges) studentState.badges = [];
+      if (studentState.completedModules.length >= 1 && !studentState.badges.includes("first_step")) studentState.badges.push("first_step");
+      if ((studentState.speakingDrills || 0) >= 5 && !studentState.badges.includes("speaker")) studentState.badges.push("speaker");
+      if ((studentState.tracingDrills || 0) >= 3 && !studentState.badges.includes("calligrapher")) studentState.badges.push("calligrapher");
+      if (studentState.xp >= 100 && !studentState.badges.includes("streak_master")) studentState.badges.push("streak_master");
+      if (studentState.completedModules.length >= 6 && !studentState.badges.includes("champion")) studentState.badges.push("champion");
+    }
+
+    function updateHeaderStats() {
+      document.getElementById('stat-streak').innerText = studentState.streak;
+      document.getElementById('stat-xp').innerText = studentState.xp;
+      document.getElementById('stat-hearts').innerText = studentState.hearts;
+      document.getElementById('current-hearts').innerText = studentState.hearts;
+    }
+
+    function renderParentShowcase() {
+      const grid = document.getElementById('badges-grid');
+      grid.innerHTML = BADGES.map(b => {
+        const unlocked = (studentState.badges || []).includes(b.id);
+        return `
+          <div class="p-4 rounded-2xl border-2 ${unlocked ? 'bg-amber-50 border-amber-300' : 'bg-slate-50 border-slate-200 opacity-50'} flex items-center gap-3">
+            <span class="text-3xl">${b.icon}</span>
+            <div>
+              <div class="font-black text-sm text-slate-800">${b.title} ${unlocked ? '✅' : '🔒'}</div>
+              <div class="text-xs font-bold text-slate-500">${b.desc}</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function generateParentCertificate() {
+      hideAllViews();
+      document.getElementById('view-certificate').classList.remove('hidden');
+      document.getElementById('cert-student-name').innerText = studentState.name;
+      document.getElementById('cert-xp').innerText = `${studentState.xp} XP`;
+      document.getElementById('cert-modules').innerText = `${(studentState.completedModules || []).length} / 6`;
+      document.getElementById('cert-date').innerText = `Date: ${new Date().toLocaleDateString()}`;
+
+      const bList = document.getElementById('cert-badges-list');
+      bList.innerHTML = (studentState.badges || []).map(bId => {
+        const b = BADGES.find(x => x.id === bId);
+        return `<span class="bg-amber-100 text-amber-900 border border-amber-300 px-3 py-1 rounded-xl font-black text-xs">${b ? b.icon + ' ' + b.title : bId}</span>`;
+      }).join('') || `<span class="text-xs text-slate-400 italic">No badges unlocked yet</span>`;
+    }
+
+    function renderModuleMap() {
+      const container = document.getElementById('module-list');
+      container.innerHTML = CURRICULUM_MODULES.map((mod, idx) => {
+        const isDone = (studentState.completedModules || []).includes(mod.id);
+        return `
+          <div class="duo-card bg-white rounded-2xl p-5 flex items-center justify-between cursor-pointer hover:shadow-md" onclick="startModule(${idx})">
+            <div class="flex items-center gap-4">
+              <div class="${mod.color} w-14 h-14 rounded-2xl flex items-center justify-center text-3xl shadow-sm text-white">${mod.icon}</div>
+              <div>
+                <div class="flex items-center gap-2">
+                  <h3 class="font-extrabold text-lg text-slate-800">${mod.title}</h3>
+                  ${isDone ? '<span class="bg-emerald-100 text-emerald-700 text-xs font-black px-2 py-0.5 rounded-md">Done</span>' : ''}
+                </div>
+                <p class="text-xs font-bold text-slate-400 mt-0.5">${mod.description}</p>
+              </div>
+            </div>
+            <button class="duo-btn-green px-5 py-2.5 rounded-xl font-extrabold text-sm uppercase">Start</button>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function startModule(idx) {
+      state.activeModuleIndex = idx;
+      state.exerciseIndex = 0;
+      hideAllViews();
+      document.getElementById('view-exercise').classList.remove('hidden');
+      loadCurrentExercise();
+    }
+
+    function confirmExit() {
+      if (confirm("Exit lesson? Progress for this unit will reset.")) showMap();
+    }
+
+    function loadCurrentExercise() {
+      const module = CURRICULUM_MODULES[state.activeModuleIndex];
+      const exercise = module.exercises[state.exerciseIndex];
+      document.getElementById('exercise-progress').style.width = `${(state.exerciseIndex / module.exercises.length) * 100}%`;
+      resetFooter();
+      state.userAnswer = null; state.selectedMultiOptions = []; state.sentenceTiles = []; state.tracingCompleted = false;
+
+      const body = document.getElementById('exercise-body');
+      body.innerHTML = '';
+      if (exercise.type === 'translate_en_zh') renderTranslate(body, exercise);
+      else if (exercise.type === 'listen_comprehension') renderListen(body, exercise);
+      else if (exercise.type === 'listen_multi_select') renderListenMulti(body, exercise);
+      else if (exercise.type === 'speak_read_out') renderSpeak(body, exercise);
+      else if (exercise.type === 'trace_character') renderTrace(body, exercise);
+      else if (exercise.type === 'sentence_build') renderSentenceBuild(body, exercise);
+    }
+
+    function speakMandarin(text) {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = 'zh-CN'; u.rate = 0.85;
+        window.speechSynthesis.speak(u);
+      }
+    }
+
+    function renderTranslate(c, ex) {
+      c.innerHTML = `<h2 class="text-2xl font-black mb-4">Translate phrase:</h2>
+        <div class="bg-blue-50 border-2 border-blue-200 rounded-2xl p-4 font-black text-xl mb-4 text-blue-900">${ex.prompt}</div>
+        <div class="grid grid-cols-2 gap-3" id="options-grid">
+          ${ex.options.map(o => `<button onclick="selectOpt(this, '${o}')" class="duo-card p-4 rounded-2xl font-bold text-lg text-left">${o}</button>`).join('')}
+        </div>`;
+    }
+
+    function renderListen(c, ex) {
+      c.innerHTML = `<h2 class="text-2xl font-black mb-4">${ex.prompt}</h2>
+        <button onclick="speakMandarin('${ex.audioText}')" class="duo-btn-blue w-16 h-16 rounded-2xl text-2xl mb-4 flex items-center justify-center"><i class="fa-solid fa-volume-high"></i></button>
+        <div class="grid grid-cols-2 gap-3" id="options-grid">
+          ${ex.options.map(o => `<button onclick="selectOpt(this, '${o}')" class="duo-card p-4 rounded-2xl font-bold text-lg text-left">${o}</button>`).join('')}
+        </div>`;
+      setTimeout(() => speakMandarin(ex.audioText), 300);
+    }
+
+    function renderListenMulti(c, ex) {
+      c.innerHTML = `<h2 class="text-2xl font-black mb-4">${ex.prompt}</h2>
+        <button onclick="speakMandarin('${ex.audioTexts.join(' ')}')" class="duo-btn-blue w-16 h-16 rounded-2xl text-2xl mb-4 flex items-center justify-center"><i class="fa-solid fa-volume-high"></i></button>
+        <div class="grid grid-cols-2 gap-3" id="options-grid">
+          ${ex.options.map(o => `<button onclick="toggleMulti(this, '${o}')" class="duo-card p-4 rounded-2xl font-bold text-lg text-center">${o}</button>`).join('')}
+        </div>`;
+    }
+
+    function renderSpeak(c, ex) {
+      c.innerHTML = `<div class="text-center space-y-4">
+        <h2 class="text-2xl font-black">Speak in Mandarin:</h2>
+        <div class="bg-amber-50 border-2 border-amber-200 rounded-2xl p-6">
+          <div class="text-3xl font-black">${ex.chinese}</div>
+          <div class="text-sm font-bold text-amber-700">${ex.pinyin}</div>
+        </div>
+        <button id="btn-mic" onclick="simulateSpeak('${ex.chinese}')" class="w-20 h-20 rounded-full bg-rose-500 text-white text-3xl mx-auto flex items-center justify-center shadow-lg"><i class="fa-solid fa-microphone"></i></button>
+        <p class="text-xs text-slate-400 font-bold">Tap mic to speak</p>
+      </div>`;
+    }
+
+    function simulateSpeak(targetText) {
+      studentState.speakingDrills = (studentState.speakingDrills || 0) + 1;
+      state.userAnswer = targetText;
+      enableCheck();
+    }
+
+    function renderTrace(c, ex) {
+      c.innerHTML = `<div class="text-center space-y-4">
+        <h2 class="text-2xl font-black">Trace Character: ${ex.character}</h2>
+        <div class="relative w-48 h-48 mx-auto bg-white border-2 border-slate-300 rounded-2xl">
+          <div class="absolute inset-0 flex items-center justify-center text-8xl text-slate-200 pointer-events-none">${ex.character}</div>
+          <canvas id="trace-canvas" width="192" height="192" class="absolute inset-0 cursor-crosshair"></canvas>
+        </div>
+        <button onclick="clearCanvas()" class="text-xs bg-slate-100 p-2 rounded-lg font-bold">Clear</button>
+      </div>`;
+      setTimeout(initCanvas, 100);
+    }
+
+    function initCanvas() {
+      const cvs = document.getElementById('trace-canvas');
+      if (!cvs) return;
+      const ctx = cvs.getContext('2d');
+      ctx.lineWidth = 10; ctx.lineCap = 'round'; ctx.strokeStyle = '#1cb0f6';
+      let drawing = false;
+      const start = () => { drawing = true; studentState.tracingDrills = (studentState.tracingDrills || 0) + 1; state.tracingCompleted = true; enableCheck(); };
+      const draw = (e) => {
+        if (!drawing) return;
+        const r = cvs.getBoundingClientRect();
+        ctx.lineTo((e.touches ? e.touches[0].clientX : e.clientX) - r.left, (e.touches ? e.touches[0].clientY : e.clientY) - r.top);
+        ctx.stroke();
+      };
+      const stop = () => { drawing = false; };
+      cvs.onmousedown = start; cvs.onmousemove = draw; cvs.onmouseup = stop;
+      cvs.ontouchstart = start; cvs.ontouchmove = draw; cvs.ontouchend = stop;
+    }
+
+    function clearCanvas() {
+      const cvs = document.getElementById('trace-canvas');
+      if (cvs) cvs.getContext('2d').clearRect(0,0,192,192);
+    }
+
+    function renderSentenceBuild(c, ex) {
+      c.innerHTML = `<h2 class="text-2xl font-black mb-4">Build sentence: "${ex.prompt}"</h2>
+        <div id="sentence-slots" class="min-h-[50px] border-b-2 border-slate-300 pb-2 flex gap-2 mb-4"></div>
+        <div class="flex flex-wrap gap-2 justify-center">
+          ${ex.scrambledWords.map((w, i) => `<button id="tile-${i}" onclick="addTile('${w}', 'tile-${i}')" class="duo-card px-4 py-2 rounded-xl font-bold">${w}</button>`).join('')}
+        </div>`;
+    }
+
+    function selectOpt(btn, val) {
+      Array.from(btn.parentElement.children).forEach(c => c.classList.remove('selected'));
+      btn.classList.add('selected'); state.userAnswer = val; enableCheck();
+    }
+
+    function toggleMulti(btn, val) {
+      if (state.selectedMultiOptions.includes(val)) {
+        state.selectedMultiOptions = state.selectedMultiOptions.filter(x => x !== val);
+        btn.classList.remove('selected');
+      } else if (state.selectedMultiOptions.length < 2) {
+        state.selectedMultiOptions.push(val); btn.classList.add('selected');
+      }
+      if (state.selectedMultiOptions.length === 2) enableCheck(); else disableCheck();
+    }
+
+    function addTile(word, id) {
+      document.getElementById(id).classList.add('opacity-30', 'pointer-events-none');
+      state.sentenceTiles.push({ word, id });
+      renderSlots(); enableCheck();
+    }
+
+    function renderSlots() {
+      document.getElementById('sentence-slots').innerHTML = state.sentenceTiles.map(t => `<span class="bg-emerald-100 border border-emerald-300 px-3 py-1 rounded-xl font-bold">${t.word}</span>`).join('');
+    }
+
+    function enableCheck() {
+      const b = document.getElementById('btn-check'); b.disabled = false; b.classList.remove('opacity-50', 'cursor-not-allowed');
+    }
+
+    function disableCheck() {
+      const b = document.getElementById('btn-check'); b.disabled = true; b.classList.add('opacity-50', 'cursor-not-allowed');
+    }
+
+    function resetFooter() {
+      disableCheck();
+      document.getElementById('feedback-banner').classList.add('hidden');
+      const b = document.getElementById('btn-check'); b.innerText = "Check"; b.onclick = handleActionClick;
+    }
+
+    function handleActionClick() {
+      const module = CURRICULUM_MODULES[state.activeModuleIndex];
+      const exercise = module.exercises[state.exerciseIndex];
+      let correct = false;
+
+      if (exercise.type === 'translate_en_zh' || exercise.type === 'listen_comprehension') correct = (state.userAnswer === exercise.answer);
+      else if (exercise.type === 'listen_multi_select') correct = (JSON.stringify([...state.selectedMultiOptions].sort()) === JSON.stringify([...exercise.correctOptions].sort()));
+      else if (exercise.type === 'speak_read_out') correct = true;
+      else if (exercise.type === 'trace_character') correct = state.tracingCompleted;
+      else if (exercise.type === 'sentence_build') correct = (state.sentenceTiles.map(t => t.word).join('') === exercise.targetWords.join(''));
+
+      studentState.drillsCompleted = (studentState.drillsCompleted || 0) + 1;
+      if (correct) { studentState.xp += 10; studentState.gems += 2; }
+      else { studentState.hearts = Math.max(0, studentState.hearts - 1); }
+
+      updateHeaderStats(); syncCloud();
+
+      const banner = document.getElementById('feedback-banner');
+      banner.classList.remove('hidden');
+      banner.className = `rounded-2xl p-4 mb-4 flex items-center justify-between ${correct ? 'bg-emerald-100 text-emerald-900' : 'bg-rose-100 text-rose-900'}`;
+      document.getElementById('feedback-title').innerText = correct ? "Awesome!" : "Needs work!";
+      document.getElementById('feedback-subtitle').innerText = correct ? "Keep it up!" : "Keep practicing!";
+
+      const btn = document.getElementById('btn-check');
+      btn.innerText = "Continue"; btn.onclick = nextEx;
+    }
+
+    function nextEx() {
+      const module = CURRICULUM_MODULES[state.activeModuleIndex];
+      state.exerciseIndex++;
+      if (state.exerciseIndex >= module.exercises.length) {
+        if (!studentState.completedModules.includes(module.id)) studentState.completedModules.push(module.id);
+        syncCloud();
+        hideAllViews();
+        document.getElementById('view-summary').classList.remove('hidden');
+        if (typeof confetti === 'function') confetti({ particleCount: 80, spread: 60 });
+      } else {
+        loadCurrentExercise();
+      }
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mandarin Classroom Master - Teacher Portal</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap');
+    body { font-family: 'Nunito', sans-serif; background-color: #0f172a; color: #f8fafc; }
+  </style>
+
+  <!-- Firebase Scripts -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, setDoc, deleteDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'pandalingo-chinese-app';
+    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+
+    let db = null;
+    let auth = null;
+
+    window.fbState = { isReady: false, studentsData: {}, appId: appId };
+
+    if (firebaseConfig) {
+      const app = initializeApp(firebaseConfig);
+      db = getFirestore(app);
+      auth = getAuth(app);
+
+      const initAuth = async () => {
+        try {
+          if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+            await signInWithCustomToken(auth, __initial_auth_token);
+          } else {
+            await signInAnonymously(auth);
+          }
+        } catch (e) {
+          console.error("Auth init error:", e);
+        }
+      };
+
+      onAuthStateChanged(auth, (user) => {
+        if (user) {
+          window.fbState.isReady = true;
+          window.fbDb = db;
+          listenToStudents();
+        }
+      });
+
+      initAuth();
+    }
+
+    function listenToStudents() {
+      if (!db) return;
+      const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'students');
+      onSnapshot(colRef, (snapshot) => {
+        const students = {};
+        snapshot.forEach(doc => { students[doc.id] = doc.data(); });
+        window.fbState.studentsData = students;
+        if (window.onTeacherDataUpdate) window.onTeacherDataUpdate(students);
+      });
+    }
+
+    window.updateStudentCloud = async function(studentId, payload) {
+      if (!db) return;
+      const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'students', studentId);
+      try {
+        await setDoc(docRef, payload, { merge: true });
+      } catch (err) {
+        console.error("Update failed:", err);
+      }
+    };
+
+    window.deleteStudentCloud = async function(studentId) {
+      if (!db) return;
+      const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'students', studentId);
+      try {
+        await deleteDoc(docRef);
+      } catch (err) {
+        console.error("Delete failed:", err);
+      }
+    };
+  </script>
+</head>
+<body class="min-h-screen flex flex-col justify-between">
+
+  <!-- TOP APP SWITCHER BAR -->
+  <div class="bg-slate-950 text-slate-400 text-xs px-6 py-2.5 flex justify-between items-center border-b border-slate-800">
+    <div class="flex items-center gap-2 font-bold">
+      <span class="text-indigo-400 font-black">TEACHER PORTAL MODE</span>
+      <span class="text-slate-600">•</span>
+      <span>Realtime Firestore Class Monitor</span>
+    </div>
+    <a href="student_app.html" class="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold px-3.5 py-1.5 rounded-lg flex items-center gap-1.5 transition">
+      <i class="fa-solid fa-gamepad"></i> Switch to Student App View
+    </a>
+  </div>
+
+  <!-- HEADER -->
+  <header class="bg-slate-900 border-b border-slate-800 px-6 py-4">
+    <div class="max-w-6xl mx-auto flex justify-between items-center">
+      <div class="flex items-center gap-3">
+        <div class="w-11 h-11 bg-indigo-600 rounded-2xl flex items-center justify-center text-white font-extrabold text-2xl shadow-lg">
+          📊
+        </div>
+        <div>
+          <h1 class="text-xl font-black tracking-wide text-white">Mandarin Classroom Master</h1>
+          <p class="text-xs font-bold text-slate-400">Year 2 Curriculum Realtime Monitor</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <span class="text-xs font-bold text-emerald-400 bg-emerald-950 border border-emerald-800 px-3 py-1.5 rounded-xl flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span> Live Sync Active
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN DASHBOARD -->
+  <main class="max-w-6xl w-full mx-auto p-6 space-y-6 flex-grow">
+
+    <!-- OVERVIEW ANALYTICS STATS -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 text-center shadow-sm">
+        <div class="text-xs font-black text-slate-400 uppercase tracking-wider">Total Active Students</div>
+        <div id="stat-total-students" class="text-3xl font-black text-indigo-400 mt-1">0</div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 text-center shadow-sm">
+        <div class="text-xs font-black text-slate-400 uppercase tracking-wider">Class Average XP</div>
+        <div id="stat-avg-xp" class="text-3xl font-black text-purple-400 mt-1">0</div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 text-center shadow-sm">
+        <div class="text-xs font-black text-slate-400 uppercase tracking-wider">Modules Completed</div>
+        <div id="stat-total-modules" class="text-3xl font-black text-emerald-400 mt-1">0 / 6</div>
+      </div>
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 text-center shadow-sm">
+        <div class="text-xs font-black text-slate-400 uppercase tracking-wider">Needs Practice (Low Hearts)</div>
+        <div id="stat-needs-help" class="text-3xl font-black text-rose-400 mt-1">0</div>
+      </div>
+    </div>
+
+    <!-- ROSTER TABLE -->
+    <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
+      <div class="flex justify-between items-center">
+        <div>
+          <h2 class="text-lg font-black text-white">Student Performance & Badges Leaderboard</h2>
+          <p class="text-xs font-bold text-slate-400">View unlocked badges, XP earnings, and control student accounts.</p>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="border-b border-slate-800 text-xs font-black uppercase text-slate-400">
+              <th class="py-3 px-3">Student</th>
+              <th class="py-3 px-3">XP Score</th>
+              <th class="py-3 px-3">Streak</th>
+              <th class="py-3 px-3">Hearts</th>
+              <th class="py-3 px-3">Units Done</th>
+              <th class="py-3 px-3">Unlocked Badges</th>
+              <th class="py-3 px-3 text-right">Teacher Controls</th>
+            </tr>
+          </thead>
+          <tbody id="teacher-roster-body" class="divide-y divide-slate-800 text-sm font-bold text-slate-200">
+            <tr>
+              <td colspan="7" class="py-8 text-center text-slate-500 italic">No student activity logged yet. Students can join via Student App.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <footer class="py-4 text-center text-slate-500 font-bold text-xs border-t border-slate-800 bg-slate-950">
+    Teacher Portal • Mandarin Learning System
+  </footer>
+
+  <script>
+    const BADGES = {
+      first_step: { title: "First Steps", icon: "🌟" },
+      speaker: { title: "Speaker", icon: "🗣️" },
+      calligrapher: { title: "Calligrapher", icon: "✍️" },
+      streak_master: { title: "Streak Master", icon: "🔥" },
+      champion: { title: "Champion", icon: "🏆" }
+    };
+
+    window.onload = function() {
+      window.onTeacherDataUpdate = renderDashboard;
+    };
+
+    function renderDashboard(studentsData) {
+      const students = studentsData || window.fbState?.studentsData || {};
+      const studentList = Object.values(students);
+
+      document.getElementById('stat-total-students').innerText = studentList.length;
+
+      if (studentList.length === 0) return;
+
+      const totalXP = studentList.reduce((acc, s) => acc + (s.xp || 0), 0);
+      const avgXP = Math.round(totalXP / studentList.length);
+      const helpCount = studentList.filter(s => (s.hearts ?? 5) <= 1).length;
+
+      document.getElementById('stat-avg-xp').innerText = avgXP;
+      document.getElementById('stat-needs-help').innerText = helpCount;
+
+      const tbody = document.getElementById('teacher-roster-body');
+      tbody.innerHTML = studentList.map(s => {
+        const studentId = s.name.toLowerCase().trim().replace(/[^a-z0-9]/g, '_');
+        const badgeIcons = (s.badges || []).map(bId => {
+          const b = BADGES[bId];
+          return b ? `<span title="${b.title}">${b.icon}</span>` : '';
+        }).join(' ') || '<span class="text-xs text-slate-500 italic">None</span>';
+
+        return `
+          <tr class="hover:bg-slate-850">
+            <td class="py-3.5 px-3 flex items-center gap-2.5">
+              <span class="w-8 h-8 rounded-full bg-indigo-900 text-indigo-300 font-black flex items-center justify-center text-xs">
+                ${s.name.charAt(0).toUpperCase()}
+              </span>
+              <span class="font-extrabold text-white">${s.name}</span>
+            </td>
+            <td class="py-3.5 px-3 text-purple-400 font-extrabold">${s.xp || 0} XP</td>
+            <td class="py-3.5 px-3 text-amber-400 font-extrabold">🔥 ${s.streak || 1}</td>
+            <td class="py-3.5 px-3 ${s.hearts <= 1 ? 'text-rose-400 font-black' : 'text-slate-300'}">❤️ ${s.hearts ?? 5} / 5</td>
+            <td class="py-3.5 px-3 text-emerald-400 font-extrabold">${(s.completedModules || []).length} / 6</td>
+            <td class="py-3.5 px-3 text-lg">${badgeIcons}</td>
+            <td class="py-3.5 px-3 text-right space-x-2">
+              <button onclick="awardXP('${studentId}', ${s.xp || 0})" class="bg-purple-900 hover:bg-purple-800 text-purple-200 px-2.5 py-1 rounded-lg text-xs font-black">
+                +20 XP
+              </button>
+              <button onclick="refillHearts('${studentId}')" class="bg-rose-900 hover:bg-rose-800 text-rose-200 px-2.5 py-1 rounded-lg text-xs font-black">
+                Refill ❤️
+              </button>
+              <button onclick="removeStudent('${studentId}')" class="bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-rose-400 px-2 py-1 rounded-lg text-xs">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function awardXP(studentId, currentXP) {
+      if (window.updateStudentCloud) {
+        window.updateStudentCloud(studentId, { xp: currentXP + 20 });
+      }
+    }
+
+    function refillHearts(studentId) {
+      if (window.updateStudentCloud) {
+        window.updateStudentCloud(studentId, { hearts: 5 });
+      }
+    }
+
+    function removeStudent(studentId) {
+      if (confirm("Remove this student from classroom database?") && window.deleteStudentCloud) {
+        window.deleteStudentCloud(studentId);
+      }
+    }
+  </script>
+</body>
+</html>
